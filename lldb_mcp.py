@@ -10,6 +10,7 @@ import os
 import functools
 from fastmcp import FastMCP
 from rich.console import Console
+import argparse
 
 # Initialize FastMCP server with transport mode
 mcp = FastMCP("LLDB Debugger Server")
@@ -369,11 +370,13 @@ def list_breakpoints() -> dict:
     }
 
 
-if __name__ == "__main__":
-    # Run the MCP server with SSE transport (HTTP streaming)
-    print("Starting LLDB MCP Server on http://0.0.0.0:8000")
-    print("SSE endpoint: http://0.0.0.0:8000/sse")
-    
-    # Use FastMCP's built-in run method with transport parameter
-    mcp.run(transport="streamable-http", host="0.0.0.0", port=8000)
+def main():
+    parser = argparse.ArgumentParser(description="LLDB MCP Server")
+    parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
+    parser.add_argument("--port", type=int, default=8000, help="Port to bind to")
+    args = parser.parse_args()
 
+    mcp.run(transport="streamable-http", host=args.host, port=args.port)
+
+if __name__ == "__main__":
+    main()

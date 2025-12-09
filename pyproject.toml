@@ -1,10 +1,14 @@
 [project]
 name = "lldb-mcp"
 version = "0.1.0"
-description = "Add your description here"
+description = "MCP Server for LLDB Debugger"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "fastmcp>=2.13.3",
     "rich>=14.2.0",
 ]
+
+[project.scripts]
+lldb-mcp = "lldb_mcp:main"
+

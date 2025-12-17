@@ -34,17 +34,28 @@ def log_tool_call(func):
         input_str = f"Tool '{func_name}' called with args={args}, kwargs={kwargs}"
         console.print(f"[bold blue]INPUT:[/bold blue] {input_str}")
         
-        # Execute function
-        result = func(*args, **kwargs)
-        
-        # Log output (truncated)
-        output_str = str(result)
-        if len(output_str) > 200:
-            output_str = output_str[:197] + "..."
+        try:
+            # Execute function
+            result = func(*args, **kwargs)
             
-        console.print(f"[bold green]OUTPUT:[/bold green] {output_str}")
-        
-        return result
+            # Log output (truncated)
+            output_str = str(result)
+            if len(output_str) > 200:
+                output_str = output_str[:197] + "..."
+                
+            console.print(f"[bold green]OUTPUT:[/bold green] {output_str}")
+            
+            return result
+        except Exception as e:
+            error_msg = f"Error: {str(e)}"
+            console.print(f"[bold red]ERROR:[/bold red] {error_msg}")
+            
+            # Check return type hint to decide format
+            return_type = func.__annotations__.get("return")
+            if return_type == dict:
+                return {"error": error_msg}
+            else:
+                return error_msg
     return wrapper
 
 @mcp.tool()
@@ -65,10 +76,6 @@ def initialize_debugger(filename: str, arch: str = "x86_64") -> str:
     
     Returns:
         A success message with the target filename, or an error message if initialization fails.
-    
-    Raises:
-        FileNotFoundError: If the specified executable file does not exist.
-        RuntimeError: If LLDB debugger or target creation fails.
     
     Example:
         initialize_debugger("/path/to/my/program", "x86_64")
@@ -187,11 +194,17 @@ def run_lldb_command(command: str, output_filename: str = "") -> dict:
     if not output_filename:
         return run_lldb_command_func(command)
     else:
-        try :
+        try:
+            result = run_lldb_command_func(command)
             with open(output_filename, "w") as f:
-                return run_lldb_command_func(command)
+                f.write(f"Command: {result['command']}\n")
+                f.write("--- LLDB Output ---\n")
+                f.write(result.get('lldb_output', ''))
+                f.write("\n--- Program Stdout ---\n")
+                f.write(result.get('program_stdout', ''))
+            return result
         except Exception as e:
-            return {"error": str(e)}
+            return {"error": f"Failed to write output to file: {str(e)}"}
 
 @mcp.tool()
 @log_tool_call
@@ -324,7 +337,15 @@ def set_breakpoint(location: str, condition: str = "") -> dict:
     # Build breakpoint command
     if ":" in location:
         # File:line format
-        cmd = f"breakpoint set --file {location.split(':')[0]} --line {location.split(':')[1]}"
+        parts = location.split(':')
+        if len(parts) >= 2 and parts[1].isdigit():
+            cmd = f"breakpoint set --file {parts[0]} --line {parts[1]}"
+        else:
+            return {
+                "success": False,
+                "message": f"Invalid location format '{location}'. Expected 'filename:line' where line is a number.",
+                "lldb_output": ""
+            }
     elif location.startswith("0x"):
         # Address format
         cmd = f"breakpoint set --address {location}"

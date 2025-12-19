@@ -11,10 +11,13 @@ import functools
 from fastmcp import FastMCP
 from rich.console import Console
 import argparse
+import threading
 
+# Initialize FastMCP server with transport mode
 # Initialize FastMCP server with transport mode
 mcp = FastMCP("LLDB Debugger Server")
 console = Console()
+lldb_mutex = threading.RLock()
 
 # Global state management
 debugger_state = {
@@ -29,33 +32,34 @@ def log_tool_call(func):
     """Decorator to log tool input and output using rich console."""
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        # Log input
-        func_name = func.__name__
-        input_str = f"Tool '{func_name}' called with args={args}, kwargs={kwargs}"
-        console.print(f"[bold blue]INPUT:[/bold blue] {input_str}")
-        
-        try:
-            # Execute function
-            result = func(*args, **kwargs)
+        with lldb_mutex:
+            # Log input
+            func_name = func.__name__
+            input_str = f"Tool '{func_name}' called with args={args}, kwargs={kwargs}"
+            console.print(f"[bold blue]INPUT:[/bold blue] {input_str}")
             
-            # Log output (truncated)
-            output_str = str(result)
-            if len(output_str) > 200:
-                output_str = output_str[:197] + "..."
+            try:
+                # Execute function
+                result = func(*args, **kwargs)
                 
-            console.print(f"[bold green]OUTPUT:[/bold green] {output_str}")
-            
-            return result
-        except Exception as e:
-            error_msg = f"Error: {str(e)}"
-            console.print(f"[bold red]ERROR:[/bold red] {error_msg}")
-            
-            # Check return type hint to decide format
-            return_type = func.__annotations__.get("return")
-            if return_type == dict:
-                return {"error": error_msg}
-            else:
-                return error_msg
+                # Log output (truncated)
+                output_str = str(result)
+                if len(output_str) > 200:
+                    output_str = output_str[:197] + "..."
+                    
+                console.print(f"[bold green]OUTPUT:[/bold green] {output_str}")
+                
+                return result
+            except Exception as e:
+                error_msg = f"Error: {str(e)}"
+                console.print(f"[bold red]ERROR:[/bold red] {error_msg}")
+                
+                # Check return type hint to decide format
+                return_type = func.__annotations__.get("return")
+                if return_type == dict:
+                    return {"error": error_msg}
+                else:
+                    return error_msg
     return wrapper
 
 @mcp.tool()
@@ -87,6 +91,7 @@ def initialize_debugger(filename: str, arch: str = "x86_64") -> str:
         return f"Error: The file '{filename}' does not exist."
     
     # Create debugger instance
+    lldb.SBDebugger.Initialize()
     debugger = lldb.SBDebugger.Create()
     if not debugger:
         return "Error: Failed to create SBDebugger instance."
@@ -150,7 +155,10 @@ def run_lldb_command_func(command: str) -> dict:
             stdout_chunk = process.GetSTDOUT(1024)
             if not stdout_chunk:
                 break
-            output_read += stdout_chunk
+            if isinstance(stdout_chunk, bytes):
+                output_read += stdout_chunk.decode('utf-8', errors='replace')
+            else:
+                output_read += stdout_chunk
         program_stdout = output_read
     
     return {
@@ -287,7 +295,7 @@ def terminate_debugger() -> str:
     global debugger_state
     
     if debugger_state["debugger"]:
-        lldb.SBDebugger.Terminate()
+        lldb.SBDebugger.Destroy(debugger_state["debugger"])
         debugger_state["debugger"] = None
         debugger_state["interpreter"] = None
         debugger_state["target"] = None
